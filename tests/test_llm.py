@@ -177,6 +177,28 @@ class LLMTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.llm.question_keywords("다들 어떤 계절인지 알려줘", []), ["계절"])
                 self.assertEqual(create.await_count, 1)
 
+    async def test_valid_but_unhelpful_keywords_cannot_displace_literal_topic(self):
+        import json
+        topic = replace(self.record, content="다들 무슨계절인가욤")
+        self.store.upsert([topic])
+        for output in (["현재 계절"], ["참여자 계절"], ["계절인지"], ["봄"],
+                       ["날씨", "기온", "봄", "여름"]):
+            with self.subTest(output=output):
+                self.attach_mock(text=json.dumps(output, ensure_ascii=False))
+                keywords = await self.llm.question_keywords("다들 어떤 계절인지 알려줘", [])
+                self.assertEqual(keywords[0], "계절")
+                self.assertLessEqual(len(keywords), 4)
+                hits = {r.message_id for word in keywords for r in self.store.search(1, [10], word, 0)}
+                self.assertIn(topic.message_id, hits)
+
+    async def test_keyword_request_has_its_own_system_instructions(self):
+        from chatbot.llm import KEYWORD_SYSTEM, SYSTEM
+        create = self.attach_mock(text='["계절"]')
+        await self.llm.question_keywords("다들 어떤 계절인지 알려줘", [])
+        prompt = create.call_args.kwargs["messages"][0]["content"]
+        self.assertTrue(prompt.startswith(KEYWORD_SYSTEM))
+        self.assertNotIn(SYSTEM, prompt)
+
     async def test_keyword_provider_failure_is_not_hidden_by_fallback(self):
         self.llm.call = AsyncMock(side_effect=ValueError("일일 호출 한도에 도달했습니다."))
         with self.assertRaisesRegex(ValueError, "일일 호출 한도"):
