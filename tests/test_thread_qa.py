@@ -262,7 +262,8 @@ class ThreadTests(unittest.IsolatedAsyncioTestCase):
         args=self.bot.llm.summarize.call_args
         self.assertEqual(args.kwargs['instruction'],"담당자도 같이 적어줘")
         self.assertIn("<#10>",args.kwargs['history'][0]['content'])
-        self.assertIn("최근 24시간",self.thread.send.call_args.args[0])
+        self.assertIn("기간 모델 해석",self.thread.send.call_args.args[0])
+        self.assertTrue(args.kwargs["retrieval_scope"]["model_resolves_period"])
 
     async def test_unknown_or_unreadable_tag_never_falls_back_to_all_sources(self):
         self.root.content="<#999> 요약해줘"
@@ -302,14 +303,19 @@ class ThreadTests(unittest.IsolatedAsyncioTestCase):
 
     def test_summary_scope_inheritance_limits_and_bot_tags_ignored(self):
         history=[{"role":"user","content":"<#10> 최근 2일 요약"},{"role":"assistant","content":"<#999>"}]
-        for text, previous, expected_ids, hours in (("자세히",history,[10],48),
-                ("<#11> 최근 3시간만",history,[11],3),("<#10> <#10>",[],[10],24)):
+        for text, previous, expected_ids, hours in (("자세히",history,[10],30*24),
+                ("<#11> 최근 3시간만",history,[11],3),("<#10> <#10>",[],[10],30*24)):
             ids, window = summary_request(text,previous,30)
             self.assertEqual(ids,expected_ids)
             self.assertEqual((window.end-window.start).total_seconds(),hours*3600)
-        for content in ("<#10> 최근 8일", "<#10> 최근 10000일", "<#10> 최근 0시간", "<#1> <#2> <#3> <#4>"):
-            with self.subTest(content=content),self.assertRaises(ValueError):
-                summary_request(content,[],30)
+        for content, hours in (("<#10> 최근 8일",192),("<#10> 최근 10000일",720)):
+            _, window = summary_request(content,[],30)
+            self.assertEqual((window.end-window.start).total_seconds(),hours*3600)
+        for content in ("<#10> 최근 0시간", "<#10> 점심 무렵", "<#10> 지난주 월요일"):
+            _, window = summary_request(content,[],30)
+            self.assertTrue(window.model_resolves_period)
+        with self.assertRaises(ValueError):
+            summary_request("<#1> <#2> <#3> <#4>",[],30)
 
     async def test_history_optout_between_summary_parts_stops_transmission(self):
         self.root.content="<#10> 요약해줘"

@@ -237,7 +237,14 @@ class ThreadQA:
                             raise ValueError("질문이 수정되어 요약을 중단했습니다. 다시 요청해 주세요.")
                     result = await asyncio.wait_for(self.bot.llm.summarize(records,
                                                                           instruction=message.content, history=history,
-                                                                          before_call=before_summary_call), timeout=480)
+                                                                          before_call=before_summary_call,
+                                                                          retrieval_scope={
+                                                                              "now": request_now.isoformat(),
+                                                                              "timezone": self.bot.config.timezone,
+                                                                              "start": window.start.isoformat(),
+                                                                              "end_exclusive": window.end.isoformat(),
+                                                                              "model_resolves_period": window.model_resolves_period,
+                                                                          }), timeout=480)
                 else:
                     result = await asyncio.wait_for(self.bot.llm.thread_answer(message.content, records, history), timeout=100)
                 _, current_channels = await self.scope(message, parent_id)

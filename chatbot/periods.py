@@ -10,6 +10,7 @@ class TimeWindow:
     start: datetime
     end: datetime  # Exclusive; both boundaries are fixed for the whole request.
     label: str
+    model_resolves_period: bool = False
 
 
 _DATE = re.compile(
@@ -102,10 +103,10 @@ def parse_period(text: str, now: datetime, retention_days: int) -> TimeWindow | 
                 if re.search(r"내일|모레|이번\s*달|지난\s*달|최근|직전|[월화수목금토일]요일|\d+\s*(?:년|월|일|시|분)\s*(?:부터|까지)|\d{4}[-./]\d", text):
                     raise ValueError("기간을 해석하지 못했습니다. '오늘', '어제', '최근 3일', '2026-09-30' 또는 '9월 29일~10월 1일'로 지정해 주세요.")
                 return None
-            if not 1 <= minutes <= 7 * 1440:
-                raise ValueError("요약 기간은 1분 이상, 최대 7일로 지정해 주세요.")
+            if minutes < 1:
+                raise ValueError("양수인 기간이 필요합니다.")
             end = now
-            start = now - timedelta(minutes=minutes)
+            start = now - timedelta(minutes=min(minutes, retention_days * 1440))
             prefix = f"최근 {minutes // 60}시간 · " if minutes % 60 == 0 else f"최근 {minutes}분 · "
 
     if re.search(r"오전|오후", text):
@@ -122,24 +123,31 @@ def parse_period(text: str, now: datetime, retention_days: int) -> TimeWindow | 
         raise ValueError("시각 범위는 아직 지원하지 않습니다. '오늘 오전' 또는 '최근 2시간'으로 지정해 주세요.")
     if start >= now:
         raise ValueError("미래의 대화는 조회할 수 없습니다.")
-    if end - start > timedelta(days=7):
-        raise ValueError("한 번에 조회할 기간은 최대 7일입니다.")
     cutoff = now - timedelta(days=retention_days)
     if start < cutoff:
-        raise ValueError(f"요청 기간이 보관기간 {retention_days}일을 벗어납니다. 시작 날짜를 늦춰 주세요.")
+        start = cutoff
     end = min(end, now)
+    if start >= end:
+        raise ValueError("요청한 기간에 보관 가능한 원문이 없습니다.")
     label = prefix + f"{start:%Y-%m-%d %H:%M} ~ {end:%Y-%m-%d %H:%M} ({now.tzinfo}, 종료 시각 미포함)"
     return TimeWindow(start.astimezone(timezone.utc), end.astimezone(timezone.utc), label)
 
 
 def resolve_period(text: str, history: list[dict], retention_days: int,
-                   timezone_name: str, now: datetime, *, default_hours: int | None = 24) -> TimeWindow | None:
+                   timezone_name: str, now: datetime) -> TimeWindow:
     local_now = now.astimezone(ZoneInfo(timezone_name))
-    turns = [item['content'] for item in history if item.get('role') == 'user'] + [text]
-    for turn in reversed(turns):
-        period = parse_period(turn, local_now, retention_days)
+    # Only a confidently parsed current request may narrow retrieval. Otherwise
+    # preserve the wording and let the summarizer use timestamps and user history.
+    try:
+        # These modifiers can narrow an otherwise recognizable day/week further.
+        if re.search(r"[월화수목금토일]요일|주말|평일|아침|점심|저녁|새벽|밤|전후|쯤|무렵|이전|제외|빼고|말고", text):
+            raise ValueError("모델에서 세부 기간 해석")
+        period = parse_period(text, local_now, retention_days)
         if period is not None:
             return period
-    if default_hours is None:
-        return None
-    return parse_period(f"최근 {default_hours}시간", local_now, retention_days)
+    except (ValueError, OverflowError):
+        pass
+    start = local_now - timedelta(days=retention_days)
+    label = (f"기간 모델 해석 · 조회 가능 범위 {start:%Y-%m-%d %H:%M} ~ "
+             f"{local_now:%Y-%m-%d %H:%M} ({timezone_name})")
+    return TimeWindow(start.astimezone(timezone.utc), now.astimezone(timezone.utc), label, True)

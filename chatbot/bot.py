@@ -315,7 +315,7 @@ class ChatBot(discord.Client):
         @app_commands.guild_only()
         @app_commands.checks.cooldown(1, 60, key=lambda i: (i.guild_id, i.user.id))
         @app_commands.describe(hours="최근 N시간; 보관기간 이내", channel="생략하면 현재 일반 텍스트 채널")
-        async def summary(interaction: discord.Interaction, hours: app_commands.Range[int, 1, 168] = 24,
+        async def summary(interaction: discord.Interaction, hours: app_commands.Range[int, 1, 8760] = 24,
                           channel: discord.TextChannel | None = None) -> None:
             await interaction.response.defer(ephemeral=True, thinking=True)
             self.llm.require_enabled()
