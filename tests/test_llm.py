@@ -225,6 +225,15 @@ class LLMTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.sources, [])
         self.assertEqual(result.omitted, 0)
 
+    async def test_evidence_answers_use_grounded_instructions_only_when_present(self):
+        from chatbot.llm import GROUNDED_ANSWER_SYSTEM, SYSTEM
+        create = self.attach_mock()
+        await self.llm.thread_answer("배포가 언제야?", [self.record], [])
+        self.assertTrue(create.call_args.kwargs["messages"][0]["content"].startswith(GROUNDED_ANSWER_SYSTEM))
+        create = self.attach_mock(text="일반 설명")
+        await self.llm.thread_answer("문자열 설명해줘", [], [])
+        self.assertTrue(create.call_args.kwargs["messages"][0]["content"].startswith(SYSTEM))
+
     async def test_general_answer_cannot_fabricate_server_citation(self):
         self.attach_mock(text="서버에서도 그렇게 결정했습니다. [m:1]")
         with self.assertRaises(ValueError):
