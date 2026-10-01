@@ -372,7 +372,7 @@ class LLM:
             # Multiple words in a model keyword are an AND query, so expansions alone
             # (e.g. "현재 계절") can miss a real conversation mentioning only the topic.
             anchors = participant_keywords(question)
-            return list(dict.fromkeys([*anchors, *(word.strip() for word in keywords)]))[:4]
+            return list(dict.fromkeys([*anchors[:2], *(word.strip() for word in keywords), *anchors[2:]]))[:4]
         except (ValueError, TypeError):
             fallback = participant_keywords(question)
             if fallback:

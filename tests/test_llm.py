@@ -199,6 +199,13 @@ class LLMTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(prompt.startswith(KEYWORD_SYSTEM))
         self.assertNotIn(SYSTEM, prompt)
 
+    async def test_long_question_anchors_leave_room_for_model_search_terms(self):
+        self.attach_mock(text='["장소","주소"]')
+        keywords = await self.llm.question_keywords("다들 이번 주 금요일 모임 장소가 어디야", [])
+        self.assertIn("장소", keywords)
+        self.assertIn("주소", keywords)
+        self.assertLessEqual(len(keywords), 4)
+
     async def test_keyword_provider_failure_is_not_hidden_by_fallback(self):
         self.llm.call = AsyncMock(side_effect=ValueError("일일 호출 한도에 도달했습니다."))
         with self.assertRaisesRegex(ValueError, "일일 호출 한도"):
