@@ -150,15 +150,13 @@ class ThreadQA:
         if any(channel_id not in channels for channel_id in ids):
             raise ValueError("태그한 채널을 이 스레드에 공개할 수 없습니다. 읽기 권한과 질문 채널의 열람 권한 설정을 확인해 주세요.")
         records = []
-        raw_count = 0
         for channel_id in ids:
-            page, count = await self.bot.scan_window(channels[channel_id], window.start, until=window.end)
+            page, _ = await self.bot.scan_window(channels[channel_id], window.start, until=window.end)
             records.extend(r for r in page if window.start.timestamp() <= r.created_at < window.end.timestamp())
-            raw_count += count
         if not records:
             raise ValueError(f"태그한 채널의 {window.label} 기간에서 요약할 수 있는 대화가 확인되지 않았습니다.")
         names = ", ".join(f"<#{channel_id}>" for channel_id in ids)
-        header = f"**💬 {names} 대화 요약**\n{window.label} · 원문 {raw_count}개 확인"
+        header = f"**💬 {names} 대화 요약**"
         return records, header
 
     async def reply(self, target, text: str) -> None:
@@ -258,12 +256,10 @@ class ThreadQA:
                 if current.content != message.content:
                     raise ValueError("처리 중 질문이 수정되었습니다. 다시 질문해 주세요.")
                 if summary_header:
-                    title, _, coverage = summary_header.partition("\n")
-                    if result.preprocessed:
-                        coverage += f" · 전처리로 반복·인사 {result.preprocessed}개 생략"
+                    answer = summary_header + "\n" + result.text
                     if result.omitted:
-                        coverage += f" · 입력 한도로 원문 {result.omitted}개 제외한 부분 요약"
-                    await self.reply(target, title + "\n" + result.text + "\n\n" + coverage)
+                        answer += "\n\n※ 입력 한도로 일부 대화만 반영한 요약입니다."
+                    await self.reply(target, answer)
                 else:
                     header = "**대화 근거 기반 AI 답변**" if result.sources else "**AI 대화 · 확인된 검색 근거 없음**"
                     if result.omitted:

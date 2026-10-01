@@ -228,12 +228,12 @@ class ThreadTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(self.bot.scan_window.call_args.args[0],self.source)
         self.assertEqual(self.bot.llm.summarize.call_args.kwargs['instruction'],self.root.content)
         answer=self.thread.send.call_args.args[0]
-        self.assertIn("최근 72시간",answer)
-        self.assertIn("원문 1500개 확인",answer)
+        self.assertNotIn("최근 72시간",answer)
+        self.assertNotIn("원문 1500개 확인",answer)
         self.assertNotIn("부분 요약",answer)
         self.assertIn("<#10>",answer)
         self.assertTrue(answer.startswith("**💬 <#10> 대화 요약**\n배포 일정이 결정됐습니다."))
-        self.assertGreater(answer.index("최근 72시간"), answer.index("배포 일정이 결정됐습니다."))
+        self.assertNotIn("Asia/Seoul",answer)
 
     async def test_summary_keeps_input_omission_notice_below_body(self):
         self.root.content="<#10> 요약해줘"
@@ -242,15 +242,15 @@ class ThreadTests(unittest.IsolatedAsyncioTestCase):
         await self.bot.on_message(self.root)
         answer=self.thread.send.call_args.args[0]
         self.assertTrue(answer.startswith("**💬 <#10> 대화 요약**\n배포 얘기가 오갔음."))
-        self.assertIn("원문 1개 제외한 부분 요약",answer)
+        self.assertIn("일부 대화만 반영한 요약",answer)
 
-    async def test_summary_reports_preprocessing_separately(self):
+    async def test_summary_hides_operational_footer(self):
         self.root.content="<#10> 요약해줘"
         self.bot.scan_window=AsyncMock(return_value=([self.record],20))
         self.bot.llm.summarize.return_value=Generation("배포 얘기가 오갔음.",[self.record],0,5)
         await self.bot.on_message(self.root)
         answer=self.thread.send.call_args.args[0]
-        self.assertIn("전처리로 반복·인사 5개 생략",answer)
+        self.assertEqual(answer,"**💬 <#10> 대화 요약**\n배포 얘기가 오갔음.")
         self.assertNotIn("입력 한도",answer)
 
     async def test_followup_inherits_tag_without_querying_other_channels(self):
@@ -262,7 +262,7 @@ class ThreadTests(unittest.IsolatedAsyncioTestCase):
         args=self.bot.llm.summarize.call_args
         self.assertEqual(args.kwargs['instruction'],"담당자도 같이 적어줘")
         self.assertIn("<#10>",args.kwargs['history'][0]['content'])
-        self.assertIn("기간 모델 해석",self.thread.send.call_args.args[0])
+        self.assertNotIn("기간 모델 해석",self.thread.send.call_args.args[0])
         self.assertTrue(args.kwargs["retrieval_scope"]["model_resolves_period"])
 
     async def test_unknown_or_unreadable_tag_never_falls_back_to_all_sources(self):

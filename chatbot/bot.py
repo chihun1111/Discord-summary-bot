@@ -277,8 +277,6 @@ class ChatBot(discord.Client):
             raise ValueError("처리 중 원문 수정·삭제 또는 수집 제외가 발생해 결과를 폐기했습니다. 다시 실행하세요.")
         if result.omitted:
             header += f"\n입력 한도로 오래된 메시지 {result.omitted}개를 제외한 부분 요약/답변입니다."
-        if result.preprocessed:
-            header += f"\n전처리로 반복·인사 {result.preprocessed}개 생략"
         await self.send(interaction, header + "\n\n" + result.text)
 
     def register_commands(self) -> None:
@@ -329,7 +327,7 @@ class ChatBot(discord.Client):
                 target = channels[selected.id]
                 actual_hours = min(hours, self.config.retention_days * 24)
                 since = datetime.now(UTC) - timedelta(hours=actual_hours)
-                records, raw_count = await self.scan_window(target, since)
+                records, _ = await self.scan_window(target, since)
 
                 async def guard_sources() -> None:
                     await self.allowed_channels(interaction, target)
@@ -338,8 +336,7 @@ class ChatBot(discord.Client):
 
                 await guard_sources()
                 result = await asyncio.wait_for(self.llm.summarize(records, before_call=guard_sources), timeout=480)
-                header = f"**#{clean(target.name)} 최근 {actual_hours}시간 요약** · 원문 {raw_count}개 확인 · 텍스트 {len(result.sources)}개 기반"
-                header += "\nAI 작성 결과입니다. 중요한 결정은 원문을 확인하세요."
+                header = f"**💬 #{clean(target.name)} 대화 요약**"
                 await self.deliver_generation(interaction, result, header)
 
         @self.tree.command(name="ask", description="키워드로 찾은 대화를 근거로 질문에 답합니다")

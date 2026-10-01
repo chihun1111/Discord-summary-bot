@@ -156,7 +156,7 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         self.bot.llm.summarize = AsyncMock(side_effect=summarize)
         await self.bot.tree.get_command("summary").callback(interaction, hours=72)
         self.assertEqual(len(self.history_calls), 4)
-        self.assertIn("원문 11개 확인", self.bot.deliver_generation.call_args.args[2])
+        self.assertEqual(self.bot.deliver_generation.call_args.args[2], "**💬 #일반 대화 요약**")
         self.assertEqual(self.bot.allowed_channels.await_count, 3)
 
     async def test_summary_stops_if_source_deleted_before_call(self):
