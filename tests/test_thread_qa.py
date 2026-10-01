@@ -327,7 +327,7 @@ class ThreadTests(unittest.IsolatedAsyncioTestCase):
         llm.require_enabled=MagicMock()
         async def provider(*args):
             self.bot.store.optout(1,88,True)
-            return "일부 요약 [m:50]"
+            return "일부 요약 [m:1]"
         llm.call=AsyncMock(side_effect=provider)
         self.bot.llm=llm
         await self.bot.on_message(self.message(103,self.thread,"자세히 요약해줘"))

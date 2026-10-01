@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from chatbot.config import Config
-from chatbot.llm import LLM, SUMMARY_STYLE, evidence_line, link_citations, prepare, preprocess_summary
+from chatbot.llm import LLM, SUMMARY_STYLE, evidence_line, link_citations, prepare, preprocess_summary, citation_evidence, validate_citations
 from chatbot.store import Record, Store
 
 
@@ -23,7 +23,7 @@ class LLMTests(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def attach_mock(self, text="배포 예정입니다. [m:100]", status="stop"):
+    def attach_mock(self, text="배포 예정입니다. [m:1]", status="stop"):
         message = SimpleNamespace(content=text, refusal=None, tool_calls=None)
         create = AsyncMock(return_value=SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason=status)]))
         self.llm.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
@@ -47,7 +47,7 @@ class LLMTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.omitted, 0)
 
     async def test_multi_chunk_map_reduce(self):
-        create = self.attach_mock()
+        create = self.attach_mock(text="일부 요약")
         records = [replace(self.record, message_id=100+i, content=str(i)+"대화" * 2000) for i in range(30)]
         result = await self.llm.summarize(records)
         self.assertGreater(create.await_count, 1)
@@ -75,7 +75,7 @@ class LLMTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_custom_prompt_reaches_partial_and_final_summaries(self):
         import json
-        create=self.attach_mock()
+        create=self.attach_mock(text="일부 요약")
         records=[replace(self.record,message_id=100+i,content=str(i)+"대화"*2000) for i in range(30)]
         await self.llm.summarize(records,instruction="위험 요소만 정리해줘")
         self.assertGreater(create.await_count,1)
@@ -146,11 +146,11 @@ class LLMTests(unittest.IsolatedAsyncioTestCase):
                 await self.llm.question_keywords("질문", [])
 
     async def test_thread_conversation_without_evidence_and_history_cap(self):
-        create = self.attach_mock(text="도움이 되었다니 다행입니다. [m:999]")
+        create = self.attach_mock(text="도움이 되었다니 다행입니다.")
         history = [{"role":"user","content":str(i)+"가"*1200} for i in range(20)]
         result = await self.llm.thread_answer("고마워", [], history)
         self.assertEqual(result.sources, [])
-        self.assertIn("확인되지 않은 근거", result.text)
+        self.assertNotIn("확인되지 않은 근거", result.text)
         import json
         payload = create.call_args.kwargs["messages"][1]["content"].split("\n",1)[1].split("\n이번 evidence:",1)[0]
         turns = json.loads(payload)["conversation"]
@@ -213,7 +213,7 @@ class LLMTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.omitted,0)
 
     async def test_larger_window_preserves_over_500_messages(self):
-        create=self.attach_mock()
+        create=self.attach_mock(text="일부 요약")
         records=[replace(self.record,message_id=100+i,content=f"결정 사항 {i}",
                          created_at=self.record.created_at+i*120) for i in range(1500)]
         result=await self.llm.summarize(records)
@@ -234,6 +234,80 @@ class LLMTests(unittest.IsolatedAsyncioTestCase):
         for citation in ("[m:100, m:101, m:100, m:999]", "[ m:100,101,100,999 ]"):
             with self.subTest(citation=citation):
                 self.assertEqual(link_citations("근거 " + citation, [self.record, second]), expected)
+
+    async def test_short_alias_links_to_exact_19_digit_discord_id(self):
+        import json
+        record=replace(self.record,message_id=1555090654625792003,reply_to=1555090654625792002)
+        create=self.attach_mock(text="일정이 변경됨 [m:1].")
+        result=await self.llm.summarize([record])
+        self.assertIn(record.url,result.text)
+        self.assertNotIn("확인되지 않은 근거",result.text)
+        payload=create.call_args.kwargs["messages"][1]["content"]
+        self.assertNotIn(str(record.message_id),payload)
+        self.assertNotIn(str(record.reply_to),payload)
+        self.assertIn("답글 원문 미포함",payload)
+        self.assertEqual(result.sources,[record])
+
+    async def test_invalid_model_citation_rejects_entire_answer(self):
+        for citation in ("[m:999]", "[m:1555090654625792000]", "[m:10]",
+                         "[m:999x]", "[m:1, m:999x]", "[m:999"):
+            self.attach_mock(text="확정됐음 " + citation)
+            with self.subTest(citation=citation),self.assertRaisesRegex(ValueError,"원문 연결 정보"):
+                await self.llm.summarize([replace(self.record,message_id=1555090654625792003)])
+
+    async def test_aliases_shared_across_chunks_and_merge(self):
+        from unittest.mock import patch
+        create=self.attach_mock()
+        def response(text):
+            return SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop",
+                message=SimpleNamespace(content=text,refusal=None,tool_calls=None))])
+        create.side_effect=[response("첫 결정 [m:1]"),response("변경된 결정 [m:2]"),
+                            response("결정이 변경됨 [m:1, m:2, m:1]")]
+        records=[replace(self.record,content="첫 문장\u2028다음 문장\u0085그다음\u2029끝"),
+                 replace(self.record,message_id=101,content="배포일이 변경됐습니다")]
+        with patch("chatbot.llm.SUMMARY_CHUNK_SIZE",1):
+            result=await self.llm.summarize(records)
+        self.assertEqual(create.await_count,3)
+        self.assertEqual(result.text.count(self.record.url),1)
+        self.assertIn(records[1].url,result.text)
+
+    async def test_partial_cannot_cite_record_only_in_other_chunk(self):
+        from unittest.mock import patch
+        create=self.attach_mock(text="확정됐음 [m:2]")
+        records=[self.record,replace(self.record,message_id=101,content="다른 화제")]
+        with patch("chatbot.llm.SUMMARY_CHUNK_SIZE",1), self.assertRaisesRegex(ValueError,"원문 연결 정보"):
+            await self.llm.summarize(records)
+        self.assertEqual(create.await_count,1)
+
+    async def test_merge_cannot_introduce_uncited_source(self):
+        from unittest.mock import patch
+        create=self.attach_mock()
+        def response(text):
+            return SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop",
+                message=SimpleNamespace(content=text,refusal=None,tool_calls=None))])
+        create.side_effect=[response("첫 결정 [m:1]"),response("두 번째 부분에는 관련 정보 없음"),
+                            response("새 결정 [m:2]")]
+        records=[self.record,replace(self.record,message_id=101,content="다른 화제")]
+        with patch("chatbot.llm.SUMMARY_CHUNK_SIZE",1), self.assertRaisesRegex(ValueError,"원문 연결 정보"):
+            await self.llm.summarize(records)
+
+    async def test_answer_and_thread_answer_use_request_local_aliases(self):
+        record=replace(self.record,message_id=1555090654625792003)
+        for mode in ("answer", "thread_answer"):
+            self.attach_mock(text="내일 예정임 [m:1]")
+            if mode == "answer":
+                result=await self.llm.answer("언제야?",[record])
+            else:
+                result=await self.llm.thread_answer("언제야?",[record],[])
+            self.assertIn(record.url,result.text)
+
+    async def test_omitted_source_gets_no_valid_alias(self):
+        from unittest.mock import patch
+        records=[replace(self.record,content="큰 본문"*1000),
+                 replace(self.record,message_id=101,content="최신 결정")]
+        self.attach_mock(text="옛 결정 [m:2]")
+        with patch("chatbot.llm.SUMMARY_BUDGET",1000), self.assertRaisesRegex(ValueError,"원문 연결 정보"):
+            await self.llm.summarize(records)
 
 
 if __name__ == "__main__":
