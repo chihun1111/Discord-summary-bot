@@ -83,7 +83,7 @@ SUMMARY_CHUNK_SIZE = 42000
 
 
 def participant_keywords(question: str) -> list[str]:
-    """Do not let an empty model classification hide explicit group questions."""
+    """Recover explicit group questions from empty or malformed classifications."""
     if not re.search(r"다들|각자|여러분|참여자|사람들|우리|누가|누구", question):
         return []
     # These are ordinary creation/explanation requests, even when addressing a group.
@@ -92,7 +92,7 @@ def participant_keywords(question: str) -> list[str]:
     text = re.sub(r"다들|각자|여러분|참여자|사람들|우리들?|누가|누구\S*|무슨|어떤|뭔\S*|뭐\S*|언제\S*|어디\S*|알려\s*줘\S*|알려\s*주세요\S*", " ", question)
     terms = []
     for word in words(text):
-        word = re.sub(r"(?:에서는|에게는|으로는|에서|에는|은|는|이|가|을|를|의|도|과|와)$", "", word) if len(word) >= 3 else word
+        word = re.sub(r"(?:인지는|인지|인\s*가요|인가|에서는|에게는|으로는|에서|에는|은|는|이|가|을|를|의|도|과|와)$", "", word) if len(word) >= 3 else word
         if word and len(word) <= 40 and word not in terms:
             terms.append(word)
     return terms[:4]
@@ -362,6 +362,9 @@ class LLM:
                 match_query(word)
             return list(dict.fromkeys(word.strip() for word in keywords)) or participant_keywords(question)
         except (ValueError, TypeError):
+            fallback = participant_keywords(question)
+            if fallback:
+                return fallback
             raise ValueError("질문의 검색어를 정리하지 못했습니다. 핵심어를 넣어 다시 질문해 주세요.") from None
 
     async def thread_answer(self, question: str, records: list[Record], history: list[dict]) -> Generation:

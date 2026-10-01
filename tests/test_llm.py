@@ -161,11 +161,26 @@ class LLMTests(unittest.IsolatedAsyncioTestCase):
         self.attach_mock(text='[]')
         for question, expected in [
             ("다들 계절이 뭔지 알려줘", ["계절"]),
+            ("다들 어떤 계절인지 알려줘", ["계절"]),
+            ("각자 어떤 소속인지는 알려주세요", ["소속"]),
             ("각자 소속이 어디야", ["소속"]),
             ("우리 배포 담당자 누구야", ["배포", "담당자"]),
         ]:
             with self.subTest(question=question):
                 self.assertEqual(await self.llm.question_keywords(question, []), expected)
+
+    async def test_malformed_classifier_recovers_group_question_without_retry(self):
+        for text in ('{}', '[null]', '["https://evil.test"]', '["a","b","c","d","e"]',
+                     '계절을 검색하면 됩니다.', '```json\n["계절",\n```', '["계절",42]'):
+            with self.subTest(text=text):
+                create = self.attach_mock(text=text)
+                self.assertEqual(await self.llm.question_keywords("다들 어떤 계절인지 알려줘", []), ["계절"])
+                self.assertEqual(create.await_count, 1)
+
+    async def test_keyword_provider_failure_is_not_hidden_by_fallback(self):
+        self.llm.call = AsyncMock(side_effect=ValueError("일일 호출 한도에 도달했습니다."))
+        with self.assertRaisesRegex(ValueError, "일일 호출 한도"):
+            await self.llm.question_keywords("다들 어떤 계절인지 알려줘", [])
 
     async def test_general_requests_do_not_trigger_participant_fallback(self):
         self.attach_mock(text='[]')
