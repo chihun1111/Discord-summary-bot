@@ -157,6 +157,22 @@ class LLMTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(turns),12)
         self.assertTrue(all(len(turn["content"]) <= 1000 for turn in turns))
 
+    async def test_empty_classifier_still_searches_participant_question(self):
+        self.attach_mock(text='[]')
+        for question, expected in [
+            ("다들 계절이 뭔지 알려줘", ["계절"]),
+            ("각자 소속이 어디야", ["소속"]),
+            ("우리 배포 담당자 누구야", ["배포", "담당자"]),
+        ]:
+            with self.subTest(question=question):
+                self.assertEqual(await self.llm.question_keywords(question, []), expected)
+
+    async def test_general_requests_do_not_trigger_participant_fallback(self):
+        self.attach_mock(text='[]')
+        for question in ["계절이란 무엇이야?", "strlen 설명해줘", "우리 환영 인사 써줘", "다들 읽을 안내문 작성해줘"]:
+            with self.subTest(question=question):
+                self.assertEqual(await self.llm.question_keywords(question, []), [])
+
     async def test_general_answer_without_evidence_preserves_text(self):
         explanation = "strlen은 널 문자를 제외한 문자열의 바이트 수를 반환합니다."
         self.attach_mock(text=explanation)
