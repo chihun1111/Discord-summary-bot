@@ -165,13 +165,14 @@ class Store:
                 """, [expression, guild, *channel_ids, since, limit]).fetchall()
             return [self.record(r) for r in rows]
 
-    def context(self, hit: Record, since: float, radius: int = 2) -> list[Record]:
+    def context(self, hit: Record, since: float, radius: int = 2,
+                window_seconds: int = 600) -> list[Record]:
         with self.connection() as conn:
             rows = conn.execute("""SELECT * FROM messages WHERE guild_id=? AND channel_id=?
                 AND created_at>=? AND created_at BETWEEN ? AND ?
                 ORDER BY ABS(created_at-?), message_id LIMIT ?""",
-                (hit.guild_id, hit.channel_id, since, hit.created_at - 600,
-                 hit.created_at + 600, hit.created_at, radius * 2 + 1)).fetchall()
+                (hit.guild_id, hit.channel_id, since, hit.created_at - window_seconds,
+                 hit.created_at + window_seconds, hit.created_at, radius * 2 + 1)).fetchall()
             result = {r["message_id"]: self.record(r) for r in rows}
             if hit.reply_to:
                 parent = conn.execute("""SELECT * FROM messages WHERE message_id=?

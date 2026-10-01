@@ -125,6 +125,17 @@ class StoreTests(unittest.TestCase):
         self.db.upsert([private_parent, reply])
         self.assertNotIn(99, {r.message_id for r in self.db.context(reply, 0)})
 
+    def test_question_context_includes_later_correction_within_scope(self):
+        topic = replace(self.sample, content="다들 무슨계절인가욤")
+        correction = replace(topic, message_id=101, content="저 봄이에요", created_at=self.now + 21*60)
+        outside = replace(correction, message_id=102, created_at=self.now + 31*60)
+        private = replace(correction, message_id=103, channel_id=20)
+        expired = replace(correction, message_id=104, created_at=self.now - 1)
+        self.db.upsert([topic, correction, outside, private, expired])
+        self.assertNotIn(101, {r.message_id for r in self.db.context(topic, self.now)})
+        expanded = self.db.context(topic, self.now, radius=30, window_seconds=1800)
+        self.assertEqual({r.message_id for r in expanded}, {100, 101})
+
     def test_unchanged_detects_edits_and_deletion(self):
         self.assertTrue(self.db.unchanged([self.sample]))
         self.db.upsert([replace(self.sample, content="変更", edited_at=self.now + 1)])

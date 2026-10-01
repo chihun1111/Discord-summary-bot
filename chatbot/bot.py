@@ -365,9 +365,9 @@ class ChatBot(discord.Client):
                     hits.update((r.message_id, r) for r in found)
                 evidence = dict(hits)
                 for hit in hits.values():
-                    for record in await asyncio.to_thread(self.store.context, hit, since):
+                    for record in await asyncio.to_thread(self.store.context, hit, since, radius=30, window_seconds=1800):
                         evidence[record.message_id] = record
-                records = await asyncio.wait_for(self.verify_records(list(evidence.values())[:60], channels), timeout=180)
+                records = await asyncio.wait_for(self.verify_records(list(evidence.values())[:120], channels), timeout=180)
                 allowed = await self.allowed_channels(interaction, channel)
                 records = [r for r in records if r.channel_id in allowed]
                 if not await asyncio.to_thread(self.store.unchanged, records):

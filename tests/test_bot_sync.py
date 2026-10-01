@@ -206,6 +206,17 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         self.bot.store.search.assert_not_called()
         self.bot.llm.thread_answer.assert_awaited_once_with("strlen 설명해줘", [], [])
 
+    async def test_ask_season_topic_includes_answer_without_repeating_keyword(self):
+        topic = replace(self.bot.make_record(self.messages[0]), content="다들 무슨계절인가욤",
+                        created_at=self.now.timestamp()-25*60)
+        correction = replace(topic, message_id=topic.message_id+1, content="저 봄이에요",
+                             created_at=topic.created_at+21*60)
+        self.bot.store.upsert([topic, correction])
+        self.bot.llm.question_keywords = AsyncMock(return_value=["계절"])
+        await self.run_ask("다들 계절이 뭔지 알려줘")
+        self.assertEqual({r.message_id for r in self.bot.llm.thread_answer.call_args.args[1]},
+                         {topic.message_id, correction.message_id})
+
     async def test_ask_explicit_query_skips_keyword_call(self):
         self.bot.llm.question_keywords = AsyncMock()
         self.bot.store.search = MagicMock(return_value=[])

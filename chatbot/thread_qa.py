@@ -140,9 +140,9 @@ class ThreadQA:
                 hits[record.message_id] = record
         evidence = dict(hits)
         for hit in hits.values():
-            for record in await asyncio.to_thread(self.bot.store.context, hit, since):
+            for record in await asyncio.to_thread(self.bot.store.context, hit, since, radius=30, window_seconds=1800):
                 evidence[record.message_id] = record
-        return await asyncio.wait_for(self.bot.verify_records(list(evidence.values())[:60], channels), timeout=180)
+        return await asyncio.wait_for(self.bot.verify_records(list(evidence.values())[:120], channels), timeout=180)
 
     async def scan_mentions(self, ids: list[int], window: TimeWindow, channels: dict) -> tuple[list[Record], str]:
         if any(channel_id not in self.bot.config.channel_ids for channel_id in ids):
