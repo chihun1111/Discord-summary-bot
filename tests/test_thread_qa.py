@@ -212,6 +212,34 @@ class ThreadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.bot.llm.thread_answer.call_args.args[1],[])
         self.assertIn("안녕하세요",self.thread.send.call_args.args[0])
 
+    async def test_plain_general_request_answers_without_source_access(self):
+        self.root.content = "C언어 strlen 설명해줘"
+        self.guild.fetch_channels.return_value = [self.parent]
+        self.bot.llm.question_keywords.return_value = []
+        explanation = "strlen은 널 문자를 제외한 문자열의 바이트 수를 반환합니다."
+        self.bot.llm.thread_answer.return_value = Generation(explanation, [], 0)
+        self.bot.scan_window = AsyncMock()
+        await self.bot.on_message(self.root)
+        self.root.create_thread.assert_awaited_once_with(
+            name=self.root.content, auto_archive_duration=1440)
+        self.bot.llm.thread_answer.assert_awaited_once_with(self.root.content, [], [])
+        self.assertEqual(self.thread.send.call_args.args[0], explanation)
+        self.bot.scan_window.assert_not_awaited()
+        self.bot.llm.summarize.assert_not_awaited()
+        self.assertEqual(self.bot.store.search(1, [20], "strlen", 0), [])
+
+    async def test_general_followup_uses_existing_thread(self):
+        self.root.content = "환영 인사 써줘"
+        self.previous = [self.message(102, self.thread, "오신 것을 환영합니다.", author=900, bot=True)]
+        self.bot.llm.question_keywords.return_value = []
+        self.bot.llm.thread_answer.return_value = Generation("Welcome!", [], 0)
+        await self.bot.on_message(self.message(103, self.thread, "영어로 번역해줘"))
+        self.root.create_thread.assert_not_awaited()
+        self.assertEqual(self.thread.send.call_args.args[0], "Welcome!")
+        self.assertEqual(self.bot.llm.thread_answer.call_args.args[2], [
+            {"role": "user", "content": self.root.content},
+            {"role": "assistant", "content": "오신 것을 환영합니다."}])
+
     def test_overwrites_compare_uncached_principals_and_ignore_send_only(self):
         self.source._overwrites=[SimpleNamespace(type=1,id=9999,allow=1024,deny=0)]
         self.assertNotEqual(audience_signature(self.parent),audience_signature(self.source))

@@ -157,6 +157,19 @@ class LLMTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(turns),12)
         self.assertTrue(all(len(turn["content"]) <= 1000 for turn in turns))
 
+    async def test_general_answer_without_evidence_preserves_text(self):
+        explanation = "strlen은 널 문자를 제외한 문자열의 바이트 수를 반환합니다."
+        self.attach_mock(text=explanation)
+        result = await self.llm.thread_answer("C언어 strlen 설명해줘", [], [])
+        self.assertEqual(result.text, explanation)
+        self.assertEqual(result.sources, [])
+        self.assertEqual(result.omitted, 0)
+
+    async def test_general_answer_cannot_fabricate_server_citation(self):
+        self.attach_mock(text="서버에서도 그렇게 결정했습니다. [m:1]")
+        with self.assertRaises(ValueError):
+            await self.llm.thread_answer("C언어 strlen 설명해줘", [], [])
+
     def test_citation_allowlist_and_external_url_removal(self):
         text = link_citations("근거 [m:100] 거짓 [m:999] https://example.test/steal", [self.record])
         self.assertIn(self.record.url, text)

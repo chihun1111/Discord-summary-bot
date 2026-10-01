@@ -261,10 +261,10 @@ class ThreadQA:
                         answer += "\n\n※ 입력 한도로 일부 대화만 반영한 요약입니다."
                     await self.reply(target, answer)
                 else:
-                    header = "**대화 근거 기반 AI 답변**" if result.sources else "**AI 대화 · 확인된 검색 근거 없음**"
+                    answer = result.text
                     if result.omitted:
-                        header += f" · 입력 한도로 원문 {result.omitted}개 제외"
-                    await self.reply(target, header + "\n\n" + result.text)
+                        answer += "\n\n※ 입력 한도로 일부 대화만 반영한 답변입니다."
+                    await self.reply(target, answer)
         except (ValueError, discord.HTTPException, TimeoutError) as exc:
             if isinstance(exc, ValueError):
                 error = str(exc)
