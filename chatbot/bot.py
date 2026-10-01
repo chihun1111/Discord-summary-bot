@@ -216,7 +216,8 @@ class ChatBot(discord.Client):
             records = await asyncio.to_thread(self.store.filter_eligible, records)
             return sorted(records, key=lambda r: r.message_id), truncated, page[-1].id if page else None, len(page)
 
-    async def scan_window(self, channel: discord.TextChannel, since: datetime) -> tuple[list[Record], int]:
+    async def scan_window(self, channel: discord.TextChannel, since: datetime,
+                          *, until: datetime | None = None) -> tuple[list[Record], int]:
         """Refresh every page in a fixed time window, including offline edits/deletes.
 
         Each page reconciles only its checked interval. A failed page leaves the
@@ -225,10 +226,11 @@ class ChatBot(discord.Client):
         """
         records: list[Record] = []
         raw_count = 0
-        cursor = None
+        cursor = discord.utils.time_snowflake(until) if until is not None else None
+        scan_since = since - timedelta(milliseconds=1) if until is not None else since
         while True:
             page, more, next_before, count = await asyncio.wait_for(
-                self.scan(channel, since, self.config.sync_limit, cursor), timeout=180)
+                self.scan(channel, scan_since, self.config.sync_limit, cursor), timeout=180)
             records.extend(page)
             raw_count += count
             if not more:
@@ -237,6 +239,8 @@ class ChatBot(discord.Client):
                 raise ValueError("과거 기록 조회 커서가 진행되지 않아 동기화를 중단했습니다.")
             cursor = next_before
         records = await asyncio.to_thread(self.store.filter_eligible, records)
+        if until is not None:
+            records = [r for r in records if since.timestamp() <= r.created_at < until.timestamp()]
         return sorted(records, key=lambda record: record.message_id), raw_count
 
     @tasks.loop(minutes=15)

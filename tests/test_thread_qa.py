@@ -302,9 +302,11 @@ class ThreadTests(unittest.IsolatedAsyncioTestCase):
 
     def test_summary_scope_inheritance_limits_and_bot_tags_ignored(self):
         history=[{"role":"user","content":"<#10> 최근 2일 요약"},{"role":"assistant","content":"<#999>"}]
-        self.assertEqual(summary_request("자세히",history,30),([10],48))
-        self.assertEqual(summary_request("<#11> 최근 3시간만",history,30),([11],3))
-        self.assertEqual(summary_request("<#10> <#10>",[],30),([10],24))
+        for text, previous, expected_ids, hours in (("자세히",history,[10],48),
+                ("<#11> 최근 3시간만",history,[11],3),("<#10> <#10>",[],[10],24)):
+            ids, window = summary_request(text,previous,30)
+            self.assertEqual(ids,expected_ids)
+            self.assertEqual((window.end-window.start).total_seconds(),hours*3600)
         for content in ("<#10> 최근 8일", "<#10> 최근 10000일", "<#10> 최근 0시간", "<#1> <#2> <#3> <#4>"):
             with self.subTest(content=content),self.assertRaises(ValueError):
                 summary_request(content,[],30)

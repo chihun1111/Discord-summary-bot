@@ -11,6 +11,7 @@ import time
 import discord
 
 from .store import Record
+from .periods import TimeWindow, resolve_period
 from .text import safe_chunks
 
 log = logging.getLogger("chat-index")
@@ -34,11 +35,11 @@ def thread_title(question: str, channels: dict[int, discord.TextChannel]) -> str
     return title if len(title) <= 50 else title[:49].rstrip() + "…"
 
 
-def summary_request(text: str, history: list[dict], retention_days: int) -> tuple[list[int], int]:
-    """Literal Discord channel tags select the scope; only user turns inherit it."""
+def summary_request(text: str, history: list[dict], retention_days: int,
+                    timezone_name: str = "Asia/Seoul", now: datetime | None = None) -> tuple[list[int], TimeWindow | None]:
+    """Inherit channel and time scope from user turns; resolve dates locally."""
     turns = [item["content"] for item in history if item.get("role") == "user"] + [text]
     ids = []
-    hours = 24
     for turn in reversed(turns):
         found = list(dict.fromkeys(int(value) for value in re.findall(r"<#([0-9]{1,19})>", turn)))
         if found:
@@ -46,15 +47,8 @@ def summary_request(text: str, history: list[dict], retention_days: int) -> tupl
             break
     if len(ids) > 3:
         raise ValueError("한 번에 요약할 채널은 최대 3개까지 태그해 주세요.")
-    if ids:
-        for turn in reversed(turns):
-            period = re.search(r"최근\s*([0-9]+)\s*(시간|일)", turn)
-            if period:
-                hours = int(period[1]) * (24 if period[2] == "일" else 1)
-                break
-        if not 1 <= hours <= min(168, retention_days * 24):
-            raise ValueError(f"요약 기간은 최근 1~{min(168, retention_days * 24)}시간 이내로 지정해 주세요.")
-    return ids, hours
+    window = resolve_period(text, history, retention_days, timezone_name, now or datetime.now(UTC)) if ids else None
+    return ids, window
 
 
 def audience_signature(channel: discord.TextChannel) -> dict:
@@ -150,22 +144,21 @@ class ThreadQA:
                 evidence[record.message_id] = record
         return await asyncio.wait_for(self.bot.verify_records(list(evidence.values())[:60], channels), timeout=180)
 
-    async def scan_mentions(self, ids: list[int], hours: int, channels: dict) -> tuple[list[Record], str]:
+    async def scan_mentions(self, ids: list[int], window: TimeWindow, channels: dict) -> tuple[list[Record], str]:
         if any(channel_id not in self.bot.config.channel_ids for channel_id in ids):
             raise ValueError("태그한 채널을 먼저 관리 웹의 수집 채널에 추가해 주세요. 일반 텍스트 채널만 요약할 수 있습니다.")
         if any(channel_id not in channels for channel_id in ids):
             raise ValueError("태그한 채널을 이 스레드에 공개할 수 없습니다. 읽기 권한과 질문 채널의 열람 권한 설정을 확인해 주세요.")
-        since = datetime.now(UTC) - timedelta(hours=hours)
         records = []
         raw_count = 0
         for channel_id in ids:
-            page, count = await self.bot.scan_window(channels[channel_id], since)
-            records.extend(page)
+            page, count = await self.bot.scan_window(channels[channel_id], window.start, until=window.end)
+            records.extend(r for r in page if window.start.timestamp() <= r.created_at < window.end.timestamp())
             raw_count += count
         if not records:
-            raise ValueError(f"태그한 채널의 최근 {hours}시간에서 요약할 수 있는 대화가 확인되지 않았습니다.")
+            raise ValueError(f"태그한 채널의 {window.label} 기간에서 요약할 수 있는 대화가 확인되지 않았습니다.")
         names = ", ".join(f"<#{channel_id}>" for channel_id in ids)
-        header = f"**💬 {names} 대화 요약**\n최근 {hours}시간 · 원문 {raw_count}개 확인"
+        header = f"**💬 {names} 대화 요약**\n{window.label} · 원문 {raw_count}개 확인"
         return records, header
 
     async def reply(self, target, text: str) -> None:
@@ -206,10 +199,12 @@ class ThreadQA:
                 history = [] if creating else await self.history(target, message, parent)
                 if not await self.eligible([message]):
                     return
-                mentioned, hours = summary_request(message.content, history, self.bot.config.retention_days)
+                request_now = datetime.now(UTC)
+                mentioned, window = summary_request(message.content, history, self.bot.config.retention_days,
+                                                    self.bot.config.timezone, request_now)
                 summary_header = None
                 if mentioned:
-                    records, summary_header = await self.scan_mentions(mentioned, hours, channels)
+                    records, summary_header = await self.scan_mentions(mentioned, window, channels)
                 else:
                     keywords = await asyncio.wait_for(self.bot.llm.question_keywords(message.content, history), timeout=60)
                     if keywords and not channels:
@@ -223,7 +218,8 @@ class ThreadQA:
                 history = [] if creating else await self.history(target, message, parent)
                 if not await self.eligible([message]):
                     return
-                if (mentioned, hours) != summary_request(message.content, history, self.bot.config.retention_days):
+                if (mentioned, window) != summary_request(message.content, history, self.bot.config.retention_days,
+                                                          self.bot.config.timezone, request_now):
                     raise ValueError("처리 중 대화의 대상 채널이나 기간이 바뀌었습니다. 다시 질문해 주세요.")
                 if mentioned:
                     async def before_summary_call():
@@ -239,7 +235,8 @@ class ThreadQA:
                         latest = await message.channel.fetch_message(message.id)
                         if latest.content != message.content:
                             raise ValueError("질문이 수정되어 요약을 중단했습니다. 다시 요청해 주세요.")
-                    result = await asyncio.wait_for(self.bot.llm.summarize(records, instruction=message.content, history=history,
+                    result = await asyncio.wait_for(self.bot.llm.summarize(records,
+                                                                          instruction=message.content, history=history,
                                                                           before_call=before_summary_call), timeout=480)
                 else:
                     result = await asyncio.wait_for(self.bot.llm.thread_answer(message.content, records, history), timeout=100)
