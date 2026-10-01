@@ -262,6 +262,22 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(records[0].author_name, "김주영")
         self.assertEqual(records[0].author_id, record.author_id)
 
+    async def test_each_author_gets_current_discord_display_name(self):
+        first = self.bot.make_record(self.messages[0])
+        second = replace(first, message_id=first.message_id+1, author_id=43, author_name="old")
+        third = replace(first, message_id=first.message_id+2, author_id=44, author_name="old")
+        records = [first, second, third]
+        self.bot.store.upsert(records)
+        names = {42: "서버 별명 A", 43: "서버 별명 B", 44: "전역 표시 이름"}
+        async def member(author_id):
+            return SimpleNamespace(display_name=names[author_id])
+        self.guild.fetch_member.side_effect = member
+        result = await self.bot.resolve_author_names(records, {10: self.channel})
+        self.assertEqual({r.author_id: r.author_name for r in result}, names)
+        names[43] = "변경된 서버 별명"
+        result = await self.bot.resolve_author_names(records, {10: self.channel})
+        self.assertEqual({r.author_id: r.author_name for r in result}, names)
+
     async def test_name_refresh_honors_optout_and_unavailable_members(self):
         record = self.bot.make_record(self.messages[0])
         self.bot.store.upsert([record])
