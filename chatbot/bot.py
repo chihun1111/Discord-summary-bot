@@ -277,7 +277,7 @@ class ChatBot(discord.Client):
             raise ValueError("처리 중 원문 수정·삭제 또는 수집 제외가 발생해 결과를 폐기했습니다. 다시 실행하세요.")
         if result.omitted:
             header += f"\n입력 한도로 오래된 메시지 {result.omitted}개를 제외한 부분 요약/답변입니다."
-        await self.send(interaction, header + "\n\n" + result.text)
+        await self.send(interaction, header.strip() + "\n\n" + result.text if header.strip() else result.text)
 
     def register_commands(self) -> None:
         @self.tree.command(name="search", description="권한이 있는 채널의 인덱스에서 키워드를 검색합니다")
@@ -339,36 +339,41 @@ class ChatBot(discord.Client):
                 header = f"**💬 #{clean(target.name)} 대화 요약**"
                 await self.deliver_generation(interaction, result, header)
 
-        @self.tree.command(name="ask", description="키워드로 찾은 대화를 근거로 질문에 답합니다")
+        @self.tree.command(name="ask", description="질문에 답하고 필요한 대화 근거는 자동으로 검색합니다")
         @app_commands.guild_only()
         @app_commands.checks.cooldown(1, 60, key=lambda i: (i.guild_id, i.user.id))
-        @app_commands.describe(question="예: 배포 날짜가 언제로 정해졌어?", query="검색할 핵심어. 예: 배포", days="최근 N일", channel="생략하면 읽을 수 있는 인덱싱 대상 채널 전체")
-        async def ask(interaction: discord.Interaction, question: str, query: str,
+        @app_commands.describe(question="질문이나 요청을 입력하세요", query="선택 사항: 직접 지정할 검색어. 생략하면 질문에서 자동 추출", days="최근 N일", channel="생략하면 읽을 수 있는 인덱싱 대상 채널 전체")
+        async def ask(interaction: discord.Interaction, question: str, query: str | None = None,
                       days: app_commands.Range[int, 1, 365] = 30,
                       channel: discord.TextChannel | None = None) -> None:
             await interaction.response.defer(ephemeral=True, thinking=True)
             self.llm.require_enabled()
-            match_query(query)
+            if query is not None:
+                match_query(query)
             if not question.strip() or len(question) > 1000:
                 raise ValueError("질문은 1~1000자로 입력하세요.")
             if self.ai_lock.locked():
                 raise ValueError("다른 AI 요청을 처리 중입니다. 완료 후 다시 실행하세요.")
             async with self.ai_lock:
                 channels = await self.allowed_channels(interaction, channel)
+                keywords = [query] if query is not None else await asyncio.wait_for(
+                    self.llm.question_keywords(question, []), timeout=60)
                 since = (datetime.now(UTC) - timedelta(days=min(days, self.config.retention_days))).timestamp()
-                hits = await asyncio.to_thread(self.store.search, self.config.guild_id, channels.keys(), query, since, 6)
-                evidence: dict[int, Record] = {r.message_id: r for r in hits}
-                for hit in hits:
+                hits: dict[int, Record] = {}
+                for keyword in keywords:
+                    found = await asyncio.to_thread(self.store.search, self.config.guild_id, channels.keys(), keyword, since, 6)
+                    hits.update((r.message_id, r) for r in found)
+                evidence = dict(hits)
+                for hit in hits.values():
                     for record in await asyncio.to_thread(self.store.context, hit, since):
                         evidence[record.message_id] = record
-                records = await asyncio.wait_for(self.verify_records(list(evidence.values()), channels), timeout=180)
+                records = await asyncio.wait_for(self.verify_records(list(evidence.values())[:60], channels), timeout=180)
                 allowed = await self.allowed_channels(interaction, channel)
                 records = [r for r in records if r.channel_id in allowed]
                 if not await asyncio.to_thread(self.store.unchanged, records):
                     raise ValueError("원문이 변경되었습니다. 다시 실행하세요.")
-                result = await asyncio.wait_for(self.llm.answer(question, records), timeout=100)
-                await self.deliver_generation(interaction, result,
-                    "**검색 근거 기반 답변** · 키워드 상위 결과와 주변 대화만 사용했습니다.\n의미·벡터 검색이 아니며 서버 전체의 완전한 결론을 보장하지 않습니다.")
+                result = await asyncio.wait_for(self.llm.thread_answer(question, records, []), timeout=100)
+                await self.deliver_generation(interaction, result, "")
 
         @self.tree.command(name="index", description="관리자: 과거 대화를 한 페이지씩 인덱싱합니다")
         @app_commands.guild_only()

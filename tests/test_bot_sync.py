@@ -174,3 +174,60 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "원문이 변경"):
             await self.bot.tree.get_command("summary").callback(interaction, hours=72)
         self.bot.deliver_generation.assert_not_awaited()
+
+    def test_ask_only_requires_question(self):
+        parameters = self.bot.tree.get_command("ask").parameters
+        self.assertEqual([p.name for p in parameters if p.required], ["question"])
+
+    async def run_ask(self, question, **kwargs):
+        interaction = SimpleNamespace(response=SimpleNamespace(defer=AsyncMock()))
+        self.bot.allowed_channels = AsyncMock(return_value={10: self.channel})
+        self.bot.deliver_generation = AsyncMock()
+        self.bot.llm.require_enabled = MagicMock()
+        self.bot.llm.thread_answer = AsyncMock(return_value=Generation("답변", [], 0))
+        self.bot.verify_records = AsyncMock(side_effect=lambda records, channels: records)
+        await self.bot.tree.get_command("ask").callback(interaction, question, **kwargs)
+        interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+
+    async def test_ask_auto_searches_question_and_deduplicates_hits(self):
+        record = self.bot.make_record(self.messages[0])
+        self.bot.store.upsert([record])
+        self.bot.llm.question_keywords = AsyncMock(return_value=["배포", "논의"])
+        await self.run_ask("우리 배포 논의 내용 알려줘", days=1, channel=self.channel)
+        self.bot.llm.question_keywords.assert_awaited_once_with("우리 배포 논의 내용 알려줘", [])
+        self.assertEqual(self.bot.llm.thread_answer.call_args.args[1], [record])
+        self.assertEqual(self.bot.allowed_channels.call_args.args[1], self.channel)
+        self.assertEqual(self.bot.deliver_generation.call_args.args[2], "")
+
+    async def test_ask_general_question_needs_no_query_or_evidence(self):
+        self.bot.llm.question_keywords = AsyncMock(return_value=[])
+        self.bot.store.search = MagicMock()
+        await self.run_ask("strlen 설명해줘")
+        self.bot.store.search.assert_not_called()
+        self.bot.llm.thread_answer.assert_awaited_once_with("strlen 설명해줘", [], [])
+
+    async def test_ask_explicit_query_skips_keyword_call(self):
+        self.bot.llm.question_keywords = AsyncMock()
+        self.bot.store.search = MagicMock(return_value=[])
+        await self.run_ask("배포 내용 알려줘", query="배포", days=1)
+        self.bot.llm.question_keywords.assert_not_awaited()
+        args = self.bot.store.search.call_args.args
+        self.assertEqual(args[2], "배포")
+        self.assertAlmostEqual(datetime.now(timezone.utc).timestamp() - args[3], 86400, delta=5)
+        self.bot.llm.thread_answer.assert_awaited_once_with("배포 내용 알려줘", [], [])
+
+    async def test_ask_removed_source_not_sent_to_model(self):
+        record = self.bot.make_record(self.messages[0])
+        self.bot.store.upsert([record])
+        self.bot.llm.question_keywords = AsyncMock(return_value=["배포"])
+        self.bot.store.unchanged = MagicMock(return_value=False)
+        with self.assertRaisesRegex(ValueError, "원문이 변경"):
+            await self.run_ask("배포 내용 알려줘")
+        self.bot.llm.thread_answer.assert_not_awaited()
+
+    async def test_generation_without_header_sends_only_answer(self):
+        self.bot.allowed_channels = AsyncMock(return_value={10: self.channel})
+        self.bot.send = AsyncMock()
+        interaction = object()
+        await self.bot.deliver_generation(interaction, Generation("답변", [], 0), "")
+        self.bot.send.assert_awaited_once_with(interaction, "답변")
