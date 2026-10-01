@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import logging
 import os
@@ -199,6 +200,27 @@ class ChatBot(discord.Client):
                     result.append(current)
                 else:
                     await asyncio.to_thread(self._remove_body_only, record.message_id)
+        return await self.resolve_author_names(result, channels)
+
+    async def resolve_author_names(self, records: list[Record], channels: dict[int, discord.TextChannel]) -> list[Record]:
+        """REST history authors may be Users without the server nickname."""
+        records = await asyncio.to_thread(self.store.filter_eligible, records)
+        names: dict[int, str | None] = {}
+        result = []
+        for record in records:
+            channel = channels.get(record.channel_id)
+            if channel is None or channel.guild.id != record.guild_id:
+                continue
+            if record.author_id not in names:
+                try:
+                    member = await channel.guild.fetch_member(record.author_id)
+                    name = getattr(member, "display_name", None)
+                    names[record.author_id] = name if isinstance(name, str) and name else None
+                except discord.HTTPException:
+                    # Departed/unavailable members retain their recorded display name.
+                    names[record.author_id] = None
+            result.append(replace(record, author_name=names[record.author_id] or record.author_name))
+        await asyncio.to_thread(self.store.upsert, result)
         return await asyncio.to_thread(self.store.filter_eligible, result)
 
     async def scan(self, channel: discord.TextChannel, since: datetime, limit: int,
@@ -241,6 +263,7 @@ class ChatBot(discord.Client):
         records = await asyncio.to_thread(self.store.filter_eligible, records)
         if until is not None:
             records = [r for r in records if since.timestamp() <= r.created_at < until.timestamp()]
+        records = await self.resolve_author_names(records, {channel.id: channel})
         return sorted(records, key=lambda record: record.message_id), raw_count
 
     @tasks.loop(minutes=15)

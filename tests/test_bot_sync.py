@@ -21,6 +21,7 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
             False, 50, 3))
         self.now = datetime.now(timezone.utc) - timedelta(minutes=1)
         self.guild = SimpleNamespace(id=1, me=SimpleNamespace(id=900))
+        self.guild.fetch_member = AsyncMock(return_value=SimpleNamespace(display_name="테스트"))
         self.channel = MagicMock(spec=discord.TextChannel)
         self.channel.id, self.channel.guild, self.channel.name = 10, self.guild, "일반"
         self.channel.is_nsfw.return_value = False
@@ -242,3 +243,34 @@ class SyncTests(unittest.IsolatedAsyncioTestCase):
         interaction = object()
         await self.bot.deliver_generation(interaction, Generation("답변", [], 0), "")
         self.bot.send.assert_awaited_once_with(interaction, "답변")
+
+    async def test_history_uses_server_nickname_once_per_author(self):
+        self.guild.fetch_member.return_value = SimpleNamespace(display_name="김주영")
+        records, _ = await self.bot.scan_window(self.channel, self.now - timedelta(days=3))
+        self.assertEqual({r.author_name for r in records}, {"김주영"})
+        self.guild.fetch_member.assert_awaited_once_with(42)
+        self.assertEqual(self.bot.store.search(1, [10], "배포", 0)[0].author_name, "김주영")
+
+    async def test_verified_search_uses_server_nickname(self):
+        message = self.messages[0]
+        message.author.display_name = "핫산"
+        self.channel.fetch_message = AsyncMock(return_value=message)
+        self.guild.fetch_member.return_value = SimpleNamespace(display_name="김주영")
+        record = self.bot.make_record(message)
+        self.bot.store.upsert([record])
+        records = await self.bot.verify_records([record], {10: self.channel})
+        self.assertEqual(records[0].author_name, "김주영")
+        self.assertEqual(records[0].author_id, record.author_id)
+
+    async def test_name_refresh_honors_optout_and_unavailable_members(self):
+        record = self.bot.make_record(self.messages[0])
+        self.bot.store.upsert([record])
+        self.guild.fetch_member.side_effect = discord.NotFound(SimpleNamespace(status=404, reason="Not Found"), "Unknown Member")
+        result = await self.bot.resolve_author_names([record], {10: self.channel})
+        self.assertEqual(result[0].author_name, record.author_name)
+        self.guild.fetch_member.side_effect = None
+        async def member(author_id):
+            self.bot.store.optout(1, author_id, True)
+            return SimpleNamespace(display_name="김주영")
+        self.guild.fetch_member.side_effect = member
+        self.assertEqual(await self.bot.resolve_author_names([record], {10: self.channel}), [])
