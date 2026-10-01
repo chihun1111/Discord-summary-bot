@@ -1,0 +1,26 @@
+[Unit]
+Description=Discord chat index bot administration
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=hermes
+Group=hermes
+WorkingDirectory=/home/hermes/discord-chat-index-bot
+ExecStart=/home/hermes/discord-chat-index-bot/.venv/bin/python -m chatbot.admin --port 8765 --public-origin https://hermes.tail85b0de.ts.net --auth-file /home/hermes/.config/discord-chat-index-bot/admin-auth.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
+UMask=0077
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/hermes/discord-chat-index-bot
+
+[Install]
+WantedBy=multi-user.target

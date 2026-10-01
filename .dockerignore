@@ -1,0 +1,10 @@
+.env
+.env.*
+.venv
+__pycache__
+**/__pycache__
+data
+.git
+*.db
+*.db-wal
+*.db-shm

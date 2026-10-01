@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+    init: true
+    volumes:
+      - chat_data:/app/data
+    # No public HTTP port is needed for this Gateway-based bot.
+volumes:
+  chat_data:

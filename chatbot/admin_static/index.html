@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light"><title>모아 — 봇 관리</title>
+  <link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문으로 건너뛰기</a>
+  <aside class="sidebar">
+    <a class="brand" href="#overview" aria-label="모아 홈"><span class="brand-mark">m<span>•</span></span><span>모아<small>DISCORD BOT CONSOLE</small></span></a>
+    <div class="workspace"><span class="workspace-avatar" data-icon="layers"></span><div><strong>내 워크스페이스</strong><small>개인 봇 관리</small></div><span class="local-dot" title="봇 워크스페이스"></span></div>
+    <p class="nav-label">WORKSPACE</p>
+    <nav aria-label="주 메뉴">
+      <a href="#overview" class="nav-item active" data-view="overview"><span data-icon="grid"></span>대시보드<span class="nav-arrow">↗</span></a>
+      <a href="#channels" class="nav-item" data-view="channels"><span data-icon="hash"></span>수집 채널<span id="nav-channel-count" class="nav-count">0</span></a>
+      <a href="#settings" class="nav-item" data-view="settings"><span data-icon="sliders"></span>봇 설정</a>
+      <a href="#events" class="nav-item" data-view="events"><span data-icon="activity"></span>운영 기록</a>
+    </nav>
+    <div class="sidebar-note"><span data-icon="shield"></span><strong>내 봇의 관리 공간</strong><p>API 키와 수집 기록은<br>봇이 실행되는 기기에 저장됩니다.</p><span class="local-label">BOT WORKSPACE</span></div>
+    <div class="sidebar-footer"><span class="avatar">M</span><div><strong>내 관리 페이지</strong><small>개인용 · 봇 관리</small></div><span data-icon="lock"></span></div>
+  </aside>
+  <div class="page-shell">
+    <header class="topbar"><div class="breadcrumb">워크스페이스 <span>/</span> <strong id="crumb">대시보드</strong></div><div class="topbar-right"><span class="local-badge"><i></i> 봇 관리</span><button id="refresh" class="icon-button" aria-label="상태 새로고침" title="상태 새로고침"><span data-icon="refresh"></span></button></div></header>
+    <main id="main">
+      <div id="connection-error" class="alert error hidden" role="alert"></div>
+      <section id="view-overview" class="view">
+        <div class="page-heading"><div><p class="eyebrow">YOUR CONVERSATIONS, CONNECTED</p><h1>봇의 하루를 한눈에.</h1><p class="subtitle">대화 수집부터 Gemini 요약까지, 한곳에서 관리하세요.</p></div><button class="button secondary" data-goto="settings"><span data-icon="sliders"></span>봇 설정</button></div>
+        <div class="hero-card">
+          <div class="bot-emblem"><span data-icon="bot"></span><i id="bot-dot"></i></div>
+          <div class="hero-copy"><div class="hero-title"><h2>대화를 모으는 작은 도우미</h2><span id="status-badge" class="badge muted">확인 중</span></div><p id="bot-description">관리 상태를 불러오고 있습니다.</p><div class="hero-meta"><span><i data-icon="cpu"></i><b id="hero-model">Gemini</b></span><span><i data-icon="hash"></i><b id="hero-channels">0개 채널</b></span></div></div>
+          <button id="bot-action" class="button primary" disabled><span data-icon="play"></span><span id="bot-action-label">봇 시작하기</span></button>
+        </div>
+        <div class="metrics">
+          <article class="metric"><div class="metric-heading">수집된 메시지<span data-icon="message"></span></div><div class="metric-value"><span id="metric-messages">—</span><small>개</small></div><p>허용 채널의 보관 중인 대화</p></article>
+          <article class="metric"><div class="metric-heading">수집 대상 채널<span data-icon="hash"></span></div><div class="metric-value"><span id="metric-channels">—</span><small>개</small></div><p id="channel-caption">설정된 채널만 수집합니다</p></article>
+          <article class="metric"><div class="metric-heading">오늘의 AI 호출<span data-icon="sparkles"></span></div><div class="metric-value"><span id="metric-calls">—</span><small id="metric-limit">/ 50회</small></div><div class="meter"><div id="usage-meter"></div></div><p>UTC 기준 · 실패한 요청 포함</p></article>
+          <article class="metric"><div class="metric-heading">대화 보관 기간<span data-icon="calendar"></span></div><div class="metric-value"><span id="metric-retention">—</span><small>일</small></div><p>기간이 지난 원문은 자동 정리</p></article>
+        </div>
+        <div class="dashboard-grid">
+          <article class="card collection-card"><div class="card-heading"><div><h2>대화 수집 현황</h2><p>최근 7일간 저장된 메시지</p></div><span class="subtle-pill">최근 7일 · UTC</span></div><div class="chart-summary"><strong id="weekly-total">0</strong><span>개의 대화가 모였어요</span><span class="chart-legend"><i></i>저장된 메시지</span></div><div class="chart" id="activity-chart" role="img" aria-label="최근 7일 메시지 수"><div class="chart-lines"><i></i><i></i><i></i></div><div id="chart-bars" class="chart-bars"></div><div id="chart-empty" class="chart-empty">첫 대화가 수집되면 여기에 표시됩니다.</div></div></article>
+          <article class="card readiness-card"><div class="card-heading"><div><h2>시작 전 체크리스트</h2><p id="checklist-progress">설정 상태를 확인하고 있어요</p></div><span class="tiny-icon" data-icon="check-circle"></span></div><div id="checks" class="checks"></div><button class="text-button" data-goto="settings">연결 설정 관리 <span>→</span></button></article>
+        </div>
+        <article class="card channel-card"><div class="card-heading"><div><h2>수집 채널</h2><p>허용한 텍스트 채널만 안전하게 모읍니다.</p></div><button class="text-button" data-goto="channels">전체 보기 <span>→</span></button></div><div id="dashboard-channels"></div></article>
+        <div class="bottom-note"><span data-icon="shield"></span>채팅 원문과 API 키는 이 관리 화면에 표시하지 않습니다.<span id="last-updated">상태 확인 중</span></div>
+      </section>
+      <section id="view-channels" class="view hidden">
+        <div class="page-heading"><div><p class="eyebrow">ONLY THE CHANNELS YOU CHOOSE</p><h1>수집 채널</h1><p class="subtitle">대화를 수집할 채널과 질문할 채널을 따로 관리하세요.</p></div><button class="button primary" data-goto="settings"><span data-icon="plus"></span>채널 설정</button></div>
+        <article class="card"><div class="card-heading"><div><h2>허용 채널 목록</h2><p id="guild-label">서버가 설정되지 않았습니다.</p></div><span class="subtle-pill">일반 텍스트 채널</span></div><div id="all-channels"></div></article><article class="card channel-card"><div class="card-heading"><div><h2>질문 채널</h2><p>이 채널에서 #대화채널 태그 + 요약 요청을 보내세요. 답변 스레드에서 대화를 이어갈 수 있습니다.</p></div><button class="text-button" data-goto="settings">질문 채널 설정 →</button></div><div id="question-channel-list" class="settings-content"></div></article>
+        <div class="info-panel"><span data-icon="info"></span><div><strong>채널 이름 대신 ID가 표시되나요?</strong><p>이 화면은 로컬 저장소의 수집 상태를 보여줍니다. Discord에서 개발자 모드를 켜면 서버와 채널의 ID를 복사할 수 있습니다. 스레드·음성·첨부파일은 수집 대상에 포함되지 않습니다.</p></div></div>
+      </section>
+      <section id="view-settings" class="view hidden">
+        <div class="page-heading"><div><p class="eyebrow">MAKE IT YOURS</p><h1>봇 설정</h1><p class="subtitle">연결 정보를 저장하고, 준비되면 봇을 시작하세요.</p></div><span class="subtle-pill"><span data-icon="lock"></span>봇 실행 기기에 저장</span></div>
+        <div id="settings-locked" class="alert warning hidden">봇이 실행 중입니다. 설정을 변경하려면 먼저 대시보드에서 봇을 중지하세요.</div>
+        <form id="settings-form" autocomplete="off">
+          <fieldset id="settings-fields">
+            <article class="card settings-card"><div class="settings-intro"><span class="section-icon" data-icon="bot"></span><h2>Discord 연결</h2><p>봇 토큰과 수집할 서버를 연결합니다.</p></div><div class="settings-content"><label for="discord-token">봇 토큰 <span id="discord-secret-state" class="field-badge"></span></label><input id="discord-token" name="discord_token" type="password" autocomplete="new-password" placeholder="Discord Bot Token 입력"><p class="field-help">저장된 토큰은 표시하지 않습니다. 비워 두면 기존 값을 유지합니다.</p><label for="guild-id">서버 ID</label><input id="guild-id" name="guild_id" inputmode="numeric" placeholder="예: 123456789012345678" maxlength="19"><label for="channel-ids">수집할 채널 ID</label><textarea id="channel-ids" name="channel_ids" rows="3" placeholder="채널 ID를 한 줄에 하나씩 입력하세요"></textarea><p class="field-help">쉼표 또는 줄바꿈으로 구분합니다. 봇에 채널 보기·메시지 기록 읽기 권한이 필요합니다.</p><label for="question-channel-ids">질문할 채널 ID</label><textarea id="question-channel-ids" name="question_channel_ids" rows="3" placeholder="수집 채널과 다른 채널 ID를 입력하세요"></textarea><p class="field-help">요약봇 채널에서 #대화채널을 태그하고 “최근 3일 결정 사항과 할 일을 정리해줘”처럼 요청하세요. 봇이 해당 채널을 읽어 스레드로 요약하며, 같은 스레드에서 추가 요청을 이어갈 수 있습니다. 기간 생략 시 최근 24시간, 최대 7일·채널당 500개를 확인합니다. 질문과 답변은 인덱싱하지 않습니다. 비워 두면 자동 답변을 끕니다.</p><p class="field-help">봇에 공개 스레드 만들기·스레드에서 메시지 보내기 권한이 필요합니다. 공개 답변의 근거로 사용할 수집 채널은 질문 채널과 채널 보기·기록 읽기 권한 설정을 같게 맞춰 주세요.</p></div></article>
+            <article class="card settings-card"><div class="settings-intro"><span class="section-icon mint" data-icon="sparkles"></span><h2>Gemini AI</h2><p>대화의 흐름, 결정 사항과 할 일을<br>한 번에 요약합니다.</p></div><div class="settings-content"><div class="toggle-row"><div><label for="enable-ai">AI 요약·질문 답변 사용</label><p>선택한 대화가 Google Gemini로 전송됩니다.</p></div><label class="switch"><input id="enable-ai" name="allow_external_llm" type="checkbox" aria-label="AI 요약·질문 답변 사용"><span></span></label></div><label for="gemini-key">Gemini API 키 <span id="gemini-secret-state" class="field-badge"></span></label><input id="gemini-key" name="gemini_api_key" type="password" autocomplete="new-password" placeholder="Gemini API key 입력"><p class="field-help">결제가 활성화된 프로젝트의 키를 사용하세요. 빈 입력은 기존 키를 유지합니다.</p><div class="form-columns"><div><label for="model">모델</label><input id="model" name="model" placeholder="gemini-3.5-flash-lite" maxlength="120"></div><div><label for="daily-limit">하루 API 호출 한도</label><div class="input-unit"><input id="daily-limit" name="daily_limit" type="number" min="1" max="10000" required><span>회</span></div></div></div><p class="field-help">긴 대화의 요약에는 여러 호출이 사용될 수 있습니다. 호출 한도는 금액 한도가 아닙니다.</p></div></article>
+            <article class="card settings-card"><div class="settings-intro"><span class="section-icon" data-icon="database"></span><h2>보관 및 동기화</h2><p>대화가 쌓이는 방식을 설정합니다.</p></div><div class="settings-content"><div class="form-columns"><div><label for="retention">메시지 보관 기간</label><div class="input-unit"><input id="retention" name="retention_days" type="number" min="1" max="365" required><span>일</span></div></div><div><label for="sync-limit">동기화 페이지 크기</label><div class="input-unit"><input id="sync-limit" name="sync_limit" type="number" min="100" max="1000" required><span>개 / 페이지</span></div></div></div><p class="field-help">최근 3일은 페이지를 이어서 모두 확인합니다. 보관 기간이 더 짧으면 해당 설정을 따릅니다. 보관 기간을 줄이면 다음 정리 시 오래된 기록이 삭제됩니다.</p><label for="timezone">시간대</label><select id="timezone" name="timezone"><option value="Asia/Seoul">Asia/Seoul · 서울</option><option value="UTC">UTC</option><option value="Asia/Tokyo">Asia/Tokyo · 도쿄</option><option value="America/New_York">America/New_York · 뉴욕</option></select><div class="storage-note"><span data-icon="folder"></span><span>로컬 저장소 <code id="database-path">data/chat.db</code></span></div></div></article>
+          </fieldset>
+          <div class="save-bar"><p id="save-hint"><span data-icon="shield"></span>키는 저장 후 화면으로 반환되지 않습니다.</p><button id="save-settings" type="submit" class="button primary"><span data-icon="check"></span>설정 저장</button></div>
+        </form>
+      </section>
+      <section id="view-events" class="view hidden">
+        <div class="page-heading"><div><p class="eyebrow">A LITTLE PEACE OF MIND</p><h1>운영 기록</h1><p class="subtitle">현재 관리 세션의 시작·중지와 설정 변경을 확인하세요.</p></div><span class="subtle-pill">최근 100개 이벤트</span></div>
+        <article class="card"><div class="card-heading"><div><h2>최근 이벤트</h2><p>민감한 원문 대신 필요한 운영 상태만 기록합니다.</p></div><span class="live-label"><i></i>5초마다 갱신</span></div><div id="event-list" class="event-list"></div></article>
+        <p class="under-note">운영 기록은 메모리에만 보관되며 관리 화면 서버를 재시작하면 초기화됩니다.</p>
+      </section>
+      <footer class="page-footer"><span>모아 <i>·</i> 대화가 모여, 맥락이 되도록.</span><span>LOCAL BOT CONSOLE <i>↗</i></span></footer>
+    </main>
+  </div>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <dialog id="confirm-dialog"><div class="dialog-icon" data-icon="info"></div><h2 id="confirm-title">변경 확인</h2><p id="confirm-description"></p><div class="dialog-actions"><button id="confirm-cancel" class="button secondary">취소</button><button id="confirm-accept" class="button primary">변경 적용</button></div></dialog>
+</body>
+</html>
